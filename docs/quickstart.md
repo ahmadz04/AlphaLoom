@@ -16,10 +16,11 @@ cp config/.env.sample config/.env
 
 Edit `config/.env` with your actual API keys:
 
-- `TRANSCRIPTS_API_KEY`: Your transcripts data provider API key
-- `NEWS_API_KEY`: Your news data provider API key
+- `FINANCIAL_DATASETS_API_KEY`: Your financialdatasets.ai API key for SEC filings
 - `DEFAULT_TICKER`: Default stock ticker (defaults to AAPL)
+- `DEFAULT_FILING_TYPE`: Default SEC filing type (defaults to 10-K)
 - `NEWS_WINDOW_DAYS`: Number of days to look back for news (defaults to 7)
+- Legacy SeekingAlpha API keys (if using transcript ingestion)
 
 ### 3. Point Your Editor to Environment File
 
