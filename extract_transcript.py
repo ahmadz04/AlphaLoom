@@ -69,8 +69,8 @@ def extract_transcript(transcript_file_path: str, output_file_path: str = None):
 def main():
     """Main function to extract the most recent transcript."""
     
-    # Find the most recent transcript for AAPL
-    latest_index_path = "data/processed/latest_index/AAPL.json"
+    # Find the most recent transcript for AAPL - updated path for new structure
+    latest_index_path = "data/dash/latest_index/AAPL.json"
     
     if not os.path.exists(latest_index_path):
         print("❌ No latest index found. Run ingestion first.")
@@ -86,7 +86,11 @@ def main():
     with open(manifest_path, 'r') as f:
         manifest = json.load(f)
     
-    transcript_path = manifest['transcript_path']
+    transcript_path = manifest.get('transcript_path')
+    
+    if not transcript_path:
+        print("❌ Latest manifest is not for a transcript. Run transcript ingestion first, or use extract_filing.py for SEC filings.")
+        return
     
     if not os.path.exists(transcript_path):
         print(f"❌ Transcript file not found: {transcript_path}")

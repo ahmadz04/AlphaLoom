@@ -1,4 +1,4 @@
-from typing import List, Optional, Literal
+from typing import List, Optional, Literal, Union
 from pydantic import BaseModel, Field
 from datetime import datetime
 
@@ -13,6 +13,11 @@ class SpeakerBlock(BaseModel):
     start_idx: Optional[int] = None
     end_idx: Optional[int] = None
 
+class FilingItem(BaseModel):
+    item: str
+    content: str
+    section_type: Optional[str] = None
+
 class TranscriptRaw(BaseModel):
     ticker: str
     call_id: str
@@ -26,14 +31,39 @@ class TranscriptRaw(BaseModel):
     hash: str
     meta: dict = Field(default_factory=dict)
 
+class FilingRaw(BaseModel):
+    ticker: str
+    filing_type: str             # 10-K, 10-Q
+    year: int
+    period_end_date: Optional[str] = None
+    filed_date: Optional[str] = None
+    provider: Literal["financialdatasets-api"]
+    retrieved_at: datetime       # UTC
+    company_name: Optional[str] = None
+    cik: Optional[str] = None
+    items: List[FilingItem]
+    hash: str
+    meta: dict = Field(default_factory=dict)
+
 class Manifest(BaseModel):
     ticker: str
-    call_id: str
-    call_datetime: datetime
+    # For transcripts
+    call_id: Optional[str] = None
+    call_datetime: Optional[datetime] = None
+    transcript_path: Optional[str] = None
+    transcript_bytes: Optional[int] = None
+    transcript_hash: Optional[str] = None
+    # For filings
+    filing_type: Optional[str] = None
+    filing_year: Optional[int] = None
+    period_end_date: Optional[str] = None
+    filed_date: Optional[str] = None
+    filing_path: Optional[str] = None
+    filing_bytes: Optional[int] = None
+    filing_hash: Optional[str] = None
+    items_count: Optional[int] = None
+    # Common fields
     provider: str
-    transcript_path: str
-    transcript_bytes: int
-    transcript_hash: str
     news_path: Optional[str] = None
     news_items_total: int = 0
     news_deduped_total: int = 0
