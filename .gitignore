@@ -1,23 +1,23 @@
-# Virtual environment
+# Python Development
+# ----------------
+# Virtual Environments
+.venv/
 venv/
 env/
-.venv/
+ENV/
 
-# Environment variables
-.env
-.env.local
-.env.production
-
-# Data directory (ignore all except .keep placeholders)
-data/*
-!data/**/.keep
-
-# Python
+# Python Artifacts
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Distribution/Packaging
 build/
 develop-eggs/
 dist/
@@ -35,31 +35,101 @@ wheels/
 *.egg
 MANIFEST
 
-# IDE
-.vscode/
+# Environment Variables
+# -------------------
+.env
+.env.*
+!.env.sample
+
+# Application Data
+# ---------------
+# Data directories (ignore all except .keep files)
+data/*
+!data/.keep
+!data/*/.keep
+!data/*/*/.keep
+
+# Processed data
+data/processed/
+data/raw/
+data/cache/
+
+# Cache and temporary files
+.cache/
+test_output/
+extracted_transcripts/
+
+# IDE and Editor Files
+# -------------------
+# VSCode
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# JetBrains IDEs
 .idea/
+*.iml
+*.iws
+.idea_modules/
+
+# Vim
 *.swp
 *.swo
 *~
 
-# OS
+# System Files
+# -----------
+# macOS
 .DS_Store
 .DS_Store?
 ._*
 .Spotlight-V100
 .Trashes
-ehthumbs.db
-Thumbs.db
 
-# Logs
+# Windows
+Thumbs.db
+ehthumbs.db
+[Dd]esktop.ini
+
+# Logs and Databases
+# -----------------
 *.log
 logs/
+*.sqlite
+*.db
 
-# Coverage reports
-htmlcov/
+# Testing and Coverage
+# ------------------
 .coverage
 .coverage.*
-coverage.xml
-*.cover
 .hypothesis/
 .pytest_cache/
+coverage.xml
+*.cover
+
+# Documentation
+# ------------
+# Generated docs
+docs/_build/
+docs/adding-sections.md
+
+# Application Specific
+# ------------------
+# Debug and testing files
+debug_app.py
+minimal_test.py
+
+# Keep essential script files
+!run_app.sh
+
+# Security and Keys
+# ---------------
+*.pem
+*.key
+*.cert
+*.crt
+*.csr
+*.p12
+*.pfx

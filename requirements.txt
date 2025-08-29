@@ -39,6 +39,9 @@ uvicorn>=0.23.0
 pytest>=7.4.0
 pytest-asyncio>=0.21.0
 
+# Web interface
+gradio>=4.0.0
+
 # Development
 black>=23.0.0
 flake8>=6.0.0

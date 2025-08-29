@@ -155,6 +155,61 @@ def find_headings(text):
             }
             headings.append(heading)
     
+    # Check if we have the critical sections (Item 1, Item 1A, Item 7)
+    found_sections = {h['name'] for h in headings}
+    critical_sections = {"Item 1", "Item 1A", "Item 7"}
+    missing_critical = critical_sections - found_sections
+    
+    # If we're missing critical sections, try fallback patterns
+    if missing_critical:
+        fallback_headings = []
+        
+        # Pattern 1: "PART I ITEM X" format
+        fallback_pattern1 = re.compile(
+            r'PART\s+[IVX]+\s+ITEM\s+(\d+[A-Z]*)\.\s+([^\n]+)',
+            re.MULTILINE | re.IGNORECASE
+        )
+        
+        for match in fallback_pattern1.finditer(text):
+            item_num = match.group(1).strip()
+            title = match.group(2).strip()
+            start_pos = match.start()
+            
+            section_name = f"Item {item_num}"
+            # Only add if we don't already have this section or if it's a critical missing section
+            if section_name not in found_sections or section_name in missing_critical:
+                heading = {
+                    'name': section_name,
+                    'title': title,
+                    'start': start_pos
+                }
+                fallback_headings.append(heading)
+        
+        # Pattern 2: Standalone section headers
+        standalone_patterns = [
+            (r'^RISK\s+FACTORS\s+', 'Item 1A', 'Risk Factors'),
+            (r'^MANAGEMENT[\'\u2019]?S\s+DISCUSSION\s+AND\s+ANALYSIS', 'Item 7', 'Management\'s Discussion and Analysis')
+        ]
+        
+        for pattern_text, item_name, section_title in standalone_patterns:
+            pattern = re.compile(pattern_text, re.MULTILINE | re.IGNORECASE)
+            for match in pattern.finditer(text):
+                start_pos = match.start()
+                if item_name not in found_sections or item_name in missing_critical:
+                    heading = {
+                        'name': item_name,
+                        'title': section_title,
+                        'start': start_pos
+                    }
+                    fallback_headings.append(heading)
+        
+        # Replace the existing headings with fallback if fallback found critical sections
+        if fallback_headings:
+            fallback_sections = {h['name'] for h in fallback_headings}
+            if critical_sections.intersection(fallback_sections):
+                # Use fallback headings as they contain critical sections
+                headings = fallback_headings
+    
     # Sort by start position
     headings.sort(key=lambda x: x['start'])
     
