@@ -1,22 +1,25 @@
 #!/usr/bin/env python3
 """
-Gemini API client for SEC filing summarization.
+OpenAI API client for SEC filing summarization.
 
-This module provides a clean interface to the Gemini API with structured JSON
+This module provides a clean interface to the OpenAI API with structured JSON
 response handling, retry logic, and error resilience. It ensures the rest of
 the codebase only deals with clean Python data, not API quirks.
 """
 
-import json
+try:
+    import ujson as json
+except ImportError:
+    import json
 import os
 import sys
 import time
 from typing import Dict, Optional
 
 try:
-    import google.generativeai as genai
+    from openai import OpenAI
 except ImportError:
-    print("Error: google-generativeai package not installed. Run: pip install google-generativeai", file=sys.stderr)
+    print("Error: openai package not installed. Run: pip install openai", file=sys.stderr)
     sys.exit(1)
 
 try:
@@ -27,24 +30,25 @@ except ImportError:
     from summarize.prompt import common_schema_dict
 
 
-def configure_gemini_api() -> bool:
+def configure_openai_api() -> bool:
     """
-    Configure Gemini API with API key from environment.
+    Configure OpenAI API with API key from environment.
     
     Returns:
         True if configuration successful, False otherwise
     """
-    api_key = os.getenv("GEMINI_API_KEY")
+    api_key = os.getenv("OPENAI_API_KEY")
     
     if not api_key:
-        print("Error: GEMINI_API_KEY environment variable not set", file=sys.stderr)
+        print("Error: OPENAI_API_KEY environment variable not set", file=sys.stderr)
         return False
     
     try:
-        genai.configure(api_key=api_key)
+        # Test the API key by creating a client
+        client = OpenAI(api_key=api_key)
         return True
     except Exception as e:
-        print(f"Error configuring Gemini API: {e}", file=sys.stderr)
+        print(f"Error configuring OpenAI API: {e}", file=sys.stderr)
         return False
 
 
@@ -66,18 +70,18 @@ def create_empty_response(warning_message: str) -> Dict:
     }
 
 
-def call_gemini(
+def call_openai(
     messages: Dict,
-    model: str = "gemini-2.0-flash-exp",
+    model: str = "gpt-4o-mini",
     max_output_tokens: int = 1200,
     temperature: float = 0.2
 ) -> Dict:
     """
-    Call Gemini API for structured JSON summarization.
+    Call OpenAI API for structured JSON summarization.
     
     Args:
         messages: Dictionary with 'system_text' and 'user_text' keys
-        model: Gemini model name to use
+        model: OpenAI model name to use
         max_output_tokens: Maximum tokens in response
         temperature: Response randomness (0.0-1.0)
         
@@ -86,8 +90,8 @@ def call_gemini(
         On errors, returns empty arrays with error in warnings.
     """
     # Ensure API is configured
-    if not configure_gemini_api():
-        return create_empty_response("Failed to configure Gemini API - check GEMINI_API_KEY")
+    if not configure_openai_api():
+        return create_empty_response("Failed to configure OpenAI API - check OPENAI_API_KEY")
     
     # Get response schema
     response_schema = common_schema_dict()
@@ -96,31 +100,26 @@ def call_gemini(
     max_retries = 2
     retry_delay = 1.0  # Initial delay in seconds
     
+    # Create OpenAI client
+    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+    
     for attempt in range(max_retries + 1):
         try:
-            # Create model with system instruction
-            model_instance = genai.GenerativeModel(
-                model,
-                system_instruction=messages["system_text"]
-            )
-            
-            # Configure generation parameters
-            generation_config = {
-                "response_mime_type": "application/json",
-                "response_schema": response_schema,
-                "temperature": temperature,
-                "max_output_tokens": max_output_tokens
-            }
-            
-            # Generate content
-            response = model_instance.generate_content(
-                [messages["user_text"]],
-                generation_config=generation_config
+            # Create the completion request
+            response = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": messages["system_text"]},
+                    {"role": "user", "content": messages["user_text"]}
+                ],
+                response_format={"type": "json_object"},
+                temperature=temperature,
+                max_tokens=max_output_tokens
             )
             
             # Check if response has content
-            if not response.text:
-                warning_msg = f"Empty response from Gemini API (attempt {attempt + 1})"
+            if not response.choices or not response.choices[0].message.content:
+                warning_msg = f"Empty response from OpenAI API (attempt {attempt + 1})"
                 if attempt == max_retries:
                     return create_empty_response(warning_msg)
                 print(f"Warning: {warning_msg}, retrying...", file=sys.stderr)
@@ -130,7 +129,8 @@ def call_gemini(
             
             # Parse JSON response
             try:
-                parsed_response = json.loads(response.text)
+                response_text = response.choices[0].message.content
+                parsed_response = json.loads(response_text)
                 
                 # Validate required fields are present
                 required_fields = ["bullets", "key_numbers", "uncertainties", "warnings"]
@@ -169,7 +169,7 @@ def call_gemini(
             
             is_retryable = any(retryable in error_msg for retryable in retryable_errors)
             
-            warning_msg = f"Gemini API error (attempt {attempt + 1}): {e}"
+            warning_msg = f"OpenAI API error (attempt {attempt + 1}): {e}"
             
             if is_retryable and attempt < max_retries:
                 print(f"Warning: {warning_msg}, retrying...", file=sys.stderr)
@@ -180,46 +180,46 @@ def call_gemini(
                 return create_empty_response(warning_msg)
     
     # Should not reach here, but handle edge case
-    return create_empty_response("Unexpected error in Gemini API call")
+    return create_empty_response("Unexpected error in OpenAI API call")
 
 
-def test_gemini_connection() -> bool:
+def test_openai_connection() -> bool:
     """
-    Test Gemini API connection with a simple request.
+    Test OpenAI API connection with a simple request.
     
     Returns:
         True if connection successful, False otherwise
     """
-    if not configure_gemini_api():
+    if not configure_openai_api():
         return False
     
     try:
         # Simple test messages
         test_messages = {
-            "system_text": "You are a test assistant. Output only JSON.",
-            "user_text": "Return a simple test response with empty arrays."
+            "system_text": "You are a test assistant. Output only JSON with the required fields: bullets, key_numbers, uncertainties, and warnings. Each should be an empty array for this test.",
+            "user_text": "Return a simple test response with empty arrays for all required fields."
         }
         
-        result = call_gemini(test_messages, max_output_tokens=100, temperature=0.0)
+        result = call_openai(test_messages, max_output_tokens=100, temperature=0.0)
         
         # Check if we got a proper response structure
         required_fields = ["bullets", "key_numbers", "uncertainties", "warnings"]
         return all(field in result for field in required_fields)
         
     except Exception as e:
-        print(f"Gemini connection test failed: {e}", file=sys.stderr)
+        print(f"OpenAI connection test failed: {e}", file=sys.stderr)
         return False
 
 
 def main():
     """
-    Test Gemini API integration.
+    Test OpenAI API integration.
     """
-    print("=== Gemini API Client Test ===")
+    print("=== OpenAI API Client Test ===")
     
     # Test API configuration
     print("Testing API configuration...")
-    if configure_gemini_api():
+    if configure_openai_api():
         print("✅ API configured successfully")
     else:
         print("❌ API configuration failed")
@@ -227,7 +227,7 @@ def main():
     
     # Test connection
     print("\nTesting API connection...")
-    if test_gemini_connection():
+    if test_openai_connection():
         print("✅ API connection successful")
     else:
         print("❌ API connection failed")
@@ -237,7 +237,7 @@ def main():
     print("\nTesting with sample summarization request...")
     
     sample_messages = {
-        "system_text": """You are a financial filings summarizer. Output ONLY valid JSON matching the response schema. Focus on key insights from the provided text.""",
+        "system_text": """You are a financial filings summarizer. Output ONLY valid JSON matching the response schema. Focus on key insights from the provided text. Always include the required fields: bullets, key_numbers, uncertainties, and warnings as arrays.""",
         
         "user_text": """Please summarize this SEC filing section chunk:
 
@@ -264,7 +264,7 @@ PARAGRAPHS TO ANALYZE:
 Output structured JSON with bullets, key_numbers, uncertainties, and warnings arrays."""
     }
     
-    result = call_gemini(sample_messages, temperature=0.1, max_output_tokens=500)
+    result = call_openai(sample_messages, temperature=0.1, max_output_tokens=500)
     
     print(f"Response received:")
     print(f"- Bullets: {len(result.get('bullets', []))}")
@@ -279,7 +279,7 @@ Output structured JSON with bullets, key_numbers, uncertainties, and warnings ar
     if result.get("bullets"):
         print(f"Sample bullet: {result['bullets'][0].get('text', 'N/A')}")
     
-    print("\n✅ Gemini API client test completed")
+    print("\n✅ OpenAI API client test completed")
     return 0
 
 

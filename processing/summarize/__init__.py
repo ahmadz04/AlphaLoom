@@ -34,15 +34,15 @@ from .cache import (
 
 from .prompt import (
     common_schema_dict,
-    build_messages_for_gemini,
+    build_messages_for_openai,
     validate_response_citations
 )
 
 try:
     from .llm import (
-        call_gemini,
-        configure_gemini_api,
-        test_gemini_connection
+        call_openai,
+        configure_openai_api,
+        test_openai_connection
     )
     from .section_runner import (
         summarize_section,
@@ -70,16 +70,16 @@ __all__ = [
     "cache_stats",
     "clear_cache",
     "common_schema_dict",
-    "build_messages_for_gemini",
+    "build_messages_for_openai",
     "validate_response_citations"
 ]
 
 # Add LLM functions if available
 if _llm_available:
     __all__.extend([
-        "call_gemini",
-        "configure_gemini_api", 
-        "test_gemini_connection",
+        "call_openai",
+        "configure_openai_api", 
+        "test_openai_connection",
         "summarize_section",
         "load_section_data",
         "group_paragraphs_into_chunks"

@@ -133,10 +133,53 @@ def merge_outputs(per_chunk_outputs: List[Dict], valid_span_ids: Set[str]) -> Di
     all_warnings = []
     
     for chunk_output in per_chunk_outputs:
-        all_bullets.extend(chunk_output.get('bullets', []))
-        all_key_numbers.extend(chunk_output.get('key_numbers', []))
-        all_uncertainties.extend(chunk_output.get('uncertainties', []))
-        all_warnings.extend(chunk_output.get('warnings', []))
+        bullets = chunk_output.get('bullets', [])
+        key_numbers = chunk_output.get('key_numbers', [])
+        uncertainties = chunk_output.get('uncertainties', [])
+        warnings = chunk_output.get('warnings', [])
+        
+        # Convert span_id (singular) to span_ids (plural) for compatibility
+        def normalize_items(items):
+            normalized = []
+            for i, item in enumerate(items):
+                if isinstance(item, dict):
+                    normalized_item = item.copy()
+                    # Convert span_id to span_ids if needed
+                    if 'span_id' in normalized_item and 'span_ids' not in normalized_item:
+                        normalized_item['span_ids'] = [normalized_item['span_id']]
+                        del normalized_item['span_id']
+                    # Ensure span_ids is always a list
+                    if 'span_ids' not in normalized_item:
+                        normalized_item['span_ids'] = []
+                    elif not isinstance(normalized_item['span_ids'], list):
+                        normalized_item['span_ids'] = [normalized_item['span_ids']]
+                    normalized.append(normalized_item)
+                elif isinstance(item, str):
+                    # Handle legacy string format - convert to expected dict format
+                    # Try to extract span_id if it's in the format "text (span::id)"
+                    import re
+                    match = re.search(r'\(([^)]+)\)\.?$', item)
+                    if match:
+                        text = item[:match.start()].strip()
+                        span_id = match.group(1)
+                        normalized_item = {
+                            'text': text,
+                            'span_ids': [span_id]
+                        }
+                    else:
+                        normalized_item = {
+                            'text': item,
+                            'span_ids': []
+                        }
+                    normalized.append(normalized_item)
+                else:
+                    normalized.append(item)
+            return normalized
+        
+        all_bullets.extend(normalize_items(bullets))
+        all_key_numbers.extend(normalize_items(key_numbers))
+        all_uncertainties.extend(normalize_items(uncertainties))
+        all_warnings.extend(warnings)
     
     # Process each type: dedupe, filter invalid citations, cap at 7
     final_bullets, bullet_warnings = filter_invalid_citations(

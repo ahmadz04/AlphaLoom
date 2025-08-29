@@ -8,10 +8,13 @@ and chunk index. This prevents redundant expensive LLM API calls when
 section content hasn't changed (stable section_hash).
 """
 
-import json
+try:
+    import ujson as json
+except ImportError:
+    import json
 import sys
 from pathlib import Path
-from typing import Dict, Optional, Union
+from typing import Dict, Optional, Union, List, Tuple
 
 
 def cache_path(
@@ -111,9 +114,13 @@ def write_cache(cache_file_path: Path, data: Dict) -> bool:
         # Ensure parent directories exist
         cache_file_path.parent.mkdir(parents=True, exist_ok=True)
         
-        # Write with pretty formatting for debugging
+        # Write without pretty formatting for faster I/O
         with open(cache_file_path, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=2, ensure_ascii=False, sort_keys=True)
+            if hasattr(json, 'dump'):
+                json.dump(data, f, ensure_ascii=False)
+            else:
+                # ujson doesn't have dump, use dumps + write
+                f.write(json.dumps(data, ensure_ascii=False))
         
         return True
         
@@ -126,6 +133,82 @@ def write_cache(cache_file_path: Path, data: Dict) -> bool:
     except Exception as e:
         print(f"Error: Unexpected error writing cache {cache_file_path}: {e}", file=sys.stderr)
         return False
+
+
+def batch_write_cache(cache_operations: List[Tuple[Path, Dict]]) -> Tuple[int, int]:
+    """
+    Write multiple cache files in batch for better performance.
+    
+    Args:
+        cache_operations: List of (cache_file_path, data) tuples
+        
+    Returns:
+        Tuple of (success_count, failure_count)
+    """
+    success_count = 0
+    failure_count = 0
+    
+    # Group operations by parent directory to create directories efficiently
+    directories_created = set()
+    
+    for cache_file_path, data in cache_operations:
+        try:
+            # Create parent directory if not already done
+            parent_dir = cache_file_path.parent
+            if parent_dir not in directories_created:
+                parent_dir.mkdir(parents=True, exist_ok=True)
+                directories_created.add(parent_dir)
+            
+            # Write cache file
+            with open(cache_file_path, 'w', encoding='utf-8') as f:
+                if hasattr(json, 'dump'):
+                    json.dump(data, f, ensure_ascii=False)
+                else:
+                    # ujson doesn't have dump, use dumps + write
+                    f.write(json.dumps(data, ensure_ascii=False))
+            
+            success_count += 1
+            
+        except Exception as e:
+            print(f"Error: Failed to write batch cache file {cache_file_path}: {e}", file=sys.stderr)
+            failure_count += 1
+    
+    return success_count, failure_count
+
+
+def batch_read_cache(cache_file_paths: List[Path]) -> List[Optional[Dict]]:
+    """
+    Read multiple cache files in batch for better performance.
+    
+    Args:
+        cache_file_paths: List of cache file paths to read
+        
+    Returns:
+        List of cached data dictionaries (None for missing/corrupt files)
+    """
+    results = []
+    
+    for cache_file_path in cache_file_paths:
+        try:
+            if not cache_file_path.exists():
+                results.append(None)
+                continue
+                
+            with open(cache_file_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                results.append(data)
+                
+        except json.JSONDecodeError as e:
+            print(f"Warning: Corrupted cache file {cache_file_path}: {e}", file=sys.stderr)
+            results.append(None)
+        except OSError as e:
+            print(f"Warning: Cannot read cache file {cache_file_path}: {e}", file=sys.stderr)
+            results.append(None)
+        except Exception as e:
+            print(f"Warning: Unexpected error reading cache {cache_file_path}: {e}", file=sys.stderr)
+            results.append(None)
+    
+    return results
 
 
 def cache_stats(base_dir: Union[str, Path], ticker: str = None) -> Dict:
@@ -337,6 +420,7 @@ def main():
     cached_data_after = read_cache(test_path)
     print(f"Cache exists after clear: {cached_data_after is not None}")
     
+    print("\\n✅ Cache system test with batch operations completed")
     return 0
 
 

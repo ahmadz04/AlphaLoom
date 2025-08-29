@@ -63,3 +63,21 @@ coverage.xml
 *.cover
 .hypothesis/
 .pytest_cache/
+.venv
+
+# Application specific files
+app.py
+debug_app.py
+terminal_app.py
+minimal_test.py
+run_app.sh
+
+# Temporary/testing files
+test_output/
+extracted_transcripts/
+
+# Generated documentation files
+docs/adding-sections.md
+
+# Shell scripts (most are temporary, but keep essential ones)
+run_app.sh

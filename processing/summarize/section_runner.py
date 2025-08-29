@@ -11,20 +11,21 @@ the entire section.
 import hashlib
 import os
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 # Import with fallback for standalone testing
 try:
-    from .cache import cache_path, read_cache, write_cache
-    from .prompt import build_messages_for_gemini
-    from .llm import call_gemini
+    from .cache import cache_path, read_cache, write_cache, batch_read_cache, batch_write_cache
+    from .prompt import build_messages_for_openai
+    from .llm import call_openai
 except ImportError:
     # For standalone testing
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    from summarize.cache import cache_path, read_cache, write_cache
-    from summarize.prompt import build_messages_for_gemini
-    from summarize.llm import call_gemini
+    from summarize.cache import cache_path, read_cache, write_cache, batch_read_cache, batch_write_cache
+    from summarize.prompt import build_messages_for_openai
+    from summarize.llm import call_openai
 
 
 def validate_chunk_result(result: Dict) -> Dict:
@@ -77,7 +78,7 @@ def extract_span_ids_from_paragraphs(paragraphs: List[Dict]) -> List[str]:
 
 def group_paragraphs_into_chunks(
     section_paragraphs: List[Dict], 
-    chunk_size: int = 8
+    chunk_size: int = 4
 ) -> List[List[Dict]]:
     """
     Group section paragraphs into chunks for processing.
@@ -98,6 +99,116 @@ def group_paragraphs_into_chunks(
     return chunks
 
 
+def process_single_chunk(
+    chunk_data: Tuple[int, List[Dict], str, str, int, str, str, str, str]
+) -> Tuple[int, Dict]:
+    """
+    Process a single chunk for parallel execution.
+    
+    Args:
+        chunk_data: Tuple containing (chunk_index, chunk_paragraphs, ticker, form, 
+                   year, section_name, section_alias, section_hash, cache_base)
+    
+    Returns:
+        Tuple of (chunk_index, result_dict)
+    """
+    chunk_index, chunk_paragraphs, ticker, form, year, section_name, section_alias, section_hash, cache_base = chunk_data
+    
+    # Generate cache path
+    cache_file_path = cache_path(
+        cache_base, ticker, form, year, 
+        section_name, section_hash, chunk_index
+    )
+    
+    # Try to load from cache first
+    cached_result = read_cache(cache_file_path)
+    
+    if cached_result is not None:
+        print(f"  Chunk {chunk_index + 1} [CACHE HIT]")
+        cached_result["cache_hit"] = True
+        validated_result = validate_chunk_result(cached_result)
+        return chunk_index, validated_result
+    
+    print(f"  Chunk {chunk_index + 1} [CACHE MISS]", end="")
+    
+    # Extract allowed span IDs from this chunk's paragraphs
+    allowed_span_ids = extract_span_ids_from_paragraphs(chunk_paragraphs)
+    
+    if not allowed_span_ids:
+        print(" [NO SPANS - SKIPPING]")
+        empty_result = {
+            "bullets": [],
+            "key_numbers": [],
+            "uncertainties": [],
+            "warnings": [f"No valid span IDs found in chunk {chunk_index}"],
+            "cache_hit": False
+        }
+        return chunk_index, empty_result
+    
+    # Build messages for OpenAI
+    try:
+        messages = build_messages_for_openai(
+            section_name=section_name,
+            section_alias=section_alias,
+            section_hash=section_hash,
+            chunk_index=chunk_index,
+            paragraphs=chunk_paragraphs,
+            allowed_span_ids=allowed_span_ids
+        )
+    except Exception as e:
+        print(f" [MESSAGE BUILD ERROR: {e}]")
+        error_result = {
+            "bullets": [],
+            "key_numbers": [],
+            "uncertainties": [],
+            "warnings": [f"Failed to build messages for chunk {chunk_index}: {e}"],
+            "cache_hit": False
+        }
+        return chunk_index, error_result
+    
+    # Call OpenAI API
+    try:
+        print(" [API CALL]", end="")
+        
+        llm_result = call_openai(
+            messages=messages,
+            model="gpt-4o-mini",
+            max_output_tokens=1200,
+            temperature=0.2
+        )
+        
+        # Add metadata
+        llm_result["cache_hit"] = False
+        llm_result["generated_at"] = __import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat()
+        llm_result["model"] = "gpt-4o-mini"
+        
+    except Exception as e:
+        print(f" [API ERROR: {e}]")
+        error_result = {
+            "bullets": [],
+            "key_numbers": [],
+            "uncertainties": [],
+            "warnings": [f"API call failed for chunk {chunk_index}: {e}"],
+            "cache_hit": False
+        }
+        return chunk_index, error_result
+    
+    # Validate result structure
+    validated_result = validate_chunk_result(llm_result)
+    
+    # Count content for logging
+    content_items = (
+        len(validated_result.get("bullets", [])) +
+        len(validated_result.get("key_numbers", [])) +
+        len(validated_result.get("uncertainties", []))
+    )
+    
+    print(f" [SUCCESS: {content_items} items]")
+    
+    # Note: Cache writing is handled in batch by the calling function
+    return chunk_index, validated_result
+
+
 def summarize_section(
     ticker: str,
     form: str,
@@ -106,10 +217,11 @@ def summarize_section(
     section_alias: str,
     section_hash: str,
     chunks_for_section: List[List[Dict]],
-    cache_base: str = "data/cache/summaries"
+    cache_base: str = "data/cache/summaries",
+    max_workers: int = 8
 ) -> List[Dict]:
     """
-    Summarize a complete SEC filing section chunk by chunk with caching.
+    Summarize a complete SEC filing section chunk by chunk with parallel processing and batch caching.
     
     Args:
         ticker: Stock ticker symbol
@@ -120,123 +232,95 @@ def summarize_section(
         section_hash: Hash of section content for cache invalidation
         chunks_for_section: List of paragraph chunks to process
         cache_base: Base directory for cache storage
+        max_workers: Maximum number of parallel workers (default: 8)
         
     Returns:
-        List of per-chunk summary dictionaries
+        List of per-chunk summary dictionaries in original order
     """
-    print(f"Processing {section_name} ({section_alias}): {len(chunks_for_section)} chunks")
+    print(f"Processing {section_name} ({section_alias}): {len(chunks_for_section)} chunks (parallel + batch cache)")
     
-    chunk_results = []
-    cache_hits = 0
-    cache_misses = 0
+    # Step 1: Batch check cache for all chunks
+    cache_paths = []
+    chunk_data_list = []
     
     for chunk_index, chunk_paragraphs in enumerate(chunks_for_section):
-        print(f"  Chunk {chunk_index + 1}/{len(chunks_for_section)}: {len(chunk_paragraphs)} paragraphs", end="")
-        
-        # Generate cache path
         cache_file_path = cache_path(
             cache_base, ticker, form, year, 
             section_name, section_hash, chunk_index
         )
+        cache_paths.append(cache_file_path)
         
-        # Try to load from cache first
-        cached_result = read_cache(cache_file_path)
-        
+        chunk_data = (
+            chunk_index, chunk_paragraphs, ticker, form, int(year), 
+            section_name, section_alias, section_hash, cache_base
+        )
+        chunk_data_list.append(chunk_data)
+    
+    # Batch read all cache files
+    print(f"  Batch checking cache for {len(cache_paths)} chunks...")
+    cached_results = batch_read_cache(cache_paths)
+    
+    # Separate cached vs uncached chunks
+    chunk_results = [None] * len(chunks_for_section)  # Pre-allocate to maintain order
+    uncached_chunks = []  # Chunks that need processing
+    cache_hits = 0
+    
+    for chunk_index, cached_result in enumerate(cached_results):
         if cached_result is not None:
-            print(" [CACHE HIT]")
+            # Cache hit
             cached_result["cache_hit"] = True
             validated_result = validate_chunk_result(cached_result)
-            chunk_results.append(validated_result)
+            chunk_results[chunk_index] = validated_result
             cache_hits += 1
-            continue
-        
-        print(" [CACHE MISS]", end="")
-        
-        # Extract allowed span IDs from this chunk's paragraphs
-        allowed_span_ids = extract_span_ids_from_paragraphs(chunk_paragraphs)
-        
-        if not allowed_span_ids:
-            print(" [NO SPANS - SKIPPING]")
-            empty_result = {
-                "bullets": [],
-                "key_numbers": [],
-                "uncertainties": [],
-                "warnings": [f"No valid span IDs found in chunk {chunk_index}"],
-                "cache_hit": False
-            }
-            chunk_results.append(empty_result)
-            continue
-        
-        # Build messages for Gemini
-        try:
-            messages = build_messages_for_gemini(
-                section_name=section_name,
-                section_alias=section_alias,
-                section_hash=section_hash,
-                chunk_index=chunk_index,
-                paragraphs=chunk_paragraphs,
-                allowed_span_ids=allowed_span_ids
-            )
-        except Exception as e:
-            print(f" [MESSAGE BUILD ERROR: {e}]")
-            error_result = {
-                "bullets": [],
-                "key_numbers": [],
-                "uncertainties": [],
-                "warnings": [f"Failed to build messages for chunk {chunk_index}: {e}"],
-                "cache_hit": False
-            }
-            chunk_results.append(error_result)
-            continue
-        
-        # Call Gemini API
-        try:
-            print(" [API CALL]", end="")
+        else:
+            # Cache miss - need to process
+            uncached_chunks.append(chunk_data_list[chunk_index])
+    
+    print(f"  Cache performance: {cache_hits} hits, {len(uncached_chunks)} misses")
+    
+    # Step 2: Process uncached chunks in parallel
+    cache_misses = 0
+    pending_cache_writes = []  # For batch cache writing
+    
+    if uncached_chunks:
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submit uncached chunks for processing
+            future_to_index = {}
+            for chunk_data in uncached_chunks:
+                future = executor.submit(process_single_chunk, chunk_data)
+                future_to_index[future] = chunk_data[0]  # chunk_index
             
-            llm_result = call_gemini(
-                messages=messages,
-                model="gemini-2.0-flash-exp",
-                max_output_tokens=1200,
-                temperature=0.2
-            )
-            
-            # Add metadata
-            llm_result["cache_hit"] = False
-            llm_result["generated_at"] = __import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat()
-            llm_result["model"] = "gemini-2.0-flash-exp"
-            
-        except Exception as e:
-            print(f" [API ERROR: {e}]")
-            error_result = {
-                "bullets": [],
-                "key_numbers": [],
-                "uncertainties": [],
-                "warnings": [f"API call failed for chunk {chunk_index}: {e}"],
-                "cache_hit": False
-            }
-            chunk_results.append(error_result)
-            continue
-        
-        # Validate result structure
-        validated_result = validate_chunk_result(llm_result)
-        
-        # Count content for logging
-        content_items = (
-            len(validated_result.get("bullets", [])) +
-            len(validated_result.get("key_numbers", [])) +
-            len(validated_result.get("uncertainties", []))
-        )
-        
-        print(f" [SUCCESS: {content_items} items]")
-        
-        # Write to cache
-        try:
-            write_cache(cache_file_path, validated_result)
-        except Exception as e:
-            print(f"  Warning: Failed to write cache for chunk {chunk_index}: {e}", file=sys.stderr)
-        
-        chunk_results.append(validated_result)
-        cache_misses += 1
+            # Collect results as they complete
+            for future in as_completed(future_to_index):
+                try:
+                    chunk_index, result = future.result()
+                    chunk_results[chunk_index] = result
+                    cache_misses += 1
+                    
+                    # Prepare for batch cache write (skip individual cache writes in process_single_chunk)
+                    if not result.get("cache_hit", False):  # Only cache new results
+                        cache_file_path = cache_paths[chunk_index]
+                        pending_cache_writes.append((cache_file_path, result))
+                        
+                except Exception as e:
+                    chunk_index = future_to_index[future]
+                    print(f"  Chunk {chunk_index + 1} failed with error: {e}", file=sys.stderr)
+                    error_result = {
+                        "bullets": [],
+                        "key_numbers": [],
+                        "uncertainties": [],
+                        "warnings": [f"Parallel processing failed for chunk {chunk_index}: {e}"],
+                        "cache_hit": False
+                    }
+                    chunk_results[chunk_index] = error_result
+                    cache_misses += 1
+    
+    # Step 3: Batch write all new cache files
+    if pending_cache_writes:
+        print(f"  Batch writing {len(pending_cache_writes)} cache files...")
+        success_count, failure_count = batch_write_cache(pending_cache_writes)
+        if failure_count > 0:
+            print(f"  Warning: {failure_count} cache writes failed", file=sys.stderr)
     
     # Summary stats
     print(f"  Section complete: {cache_hits} cache hits, {cache_misses} API calls")
@@ -262,7 +346,10 @@ def load_section_data(
     Returns:
         Dictionary with section metadata and paragraphs, or None if not found
     """
-    import json
+    try:
+        import ujson as json
+    except ImportError:
+        import json
     
     base_dir = Path("data/processed") / ticker / form / str(year)
     sections_path = base_dir / "sections.json"

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Prompt builder for Gemini LLM SEC filing summarization.
+Prompt builder for OpenAI LLM SEC filing summarization.
 
-This module creates structured prompts for Gemini to generate JSON summaries
+This module creates structured prompts for OpenAI to generate JSON summaries
 with strict citation validation and response formatting. The explicit "allowed span"
 list ensures all citations reference valid paragraph spans from the source section.
 """
@@ -76,7 +76,7 @@ def common_schema_dict() -> Dict:
     }
 
 
-def build_messages_for_gemini(
+def build_messages_for_openai(
     section_name: str,
     section_alias: str, 
     section_hash: str,
@@ -85,7 +85,7 @@ def build_messages_for_gemini(
     allowed_span_ids: List[str]
 ) -> Dict:
     """
-    Build system and user messages for Gemini LLM summarization.
+    Build system and user messages for OpenAI LLM summarization.
     
     Args:
         section_name: SEC section name (e.g., "Item 7", "Item 1A")
@@ -96,7 +96,7 @@ def build_messages_for_gemini(
         allowed_span_ids: List of valid span IDs that can be cited
         
     Returns:
-        Dictionary with 'system_text' and 'user_text' keys for Gemini API
+        Dictionary with 'system_text' and 'user_text' keys for OpenAI API
     """
     
     # Build system instruction with clear rules
@@ -210,7 +210,7 @@ def create_sample_prompt() -> Dict:
     
     allowed_spans = ["mdna::p005", "mdna::p006", "mdna::p007"]
     
-    return build_messages_for_gemini(
+    return build_messages_for_openai(
         section_name="Item 7",
         section_alias="Management's Discussion and Analysis",
         section_hash="abc123def456",
@@ -224,7 +224,7 @@ def main():
     """
     Test prompt building functionality.
     """
-    print("=== Gemini Prompt Builder Test ===")
+    print("=== OpenAI Prompt Builder Test ===")
     
     # Test schema generation
     schema = common_schema_dict()

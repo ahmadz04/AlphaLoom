@@ -16,7 +16,10 @@ Usage:
 """
 
 import hashlib
-import json
+try:
+    import ujson as json
+except ImportError:
+    import json
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -251,7 +254,7 @@ def run(
         print(f"Paragraphs: {len(section_paragraphs)}")
         
         # Group paragraphs into chunks
-        paragraph_chunks = group_paragraphs_into_chunks(section_paragraphs, chunk_size=8)
+        paragraph_chunks = group_paragraphs_into_chunks(section_paragraphs, chunk_size=6)
         print(f"Grouped into {len(paragraph_chunks)} chunks")
         
         # Step 4: per_chunk = summarize_section(...)
