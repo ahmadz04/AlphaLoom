@@ -19,9 +19,9 @@ def write_summaries(
     year: int, 
     sections: List[Dict[str, Any]], 
     out_base: str = "data/processed"
-) -> Path:
+) -> str:
     """
-    Write summaries to data/processed/{ticker}/{form}/{year}/summaries.json.
+    Write summaries to data/processed/{ticker}/{form}/{year}/summaries.json using hybrid storage.
     
     If the file exists, loads it and replaces sections by section_name instead
     of overwriting everything. Validates the full file against schema before saving.
@@ -34,23 +34,26 @@ def write_summaries(
         out_base: Base directory path for processed data
         
     Returns:
-        Path to the written summaries.json file
+        String path to the written summaries.json file
         
     Raises:
         ValueError: If schema validation fails
         OSError: If file operations fail
     """
-    # Construct output path
-    output_dir = Path(out_base) / ticker / form / str(year)
-    output_file = output_dir / "summaries.json"
+    # Import hybrid storage
+    import sys
+    from pathlib import Path
+    sys.path.append(str(Path(__file__).parent.parent.parent))
+    from ingestion.storage.hybrid import HybridStorage
     
-    # Ensure output directory exists
-    output_dir.mkdir(parents=True, exist_ok=True)
+    storage = HybridStorage()
+    
+    # Construct output path
+    output_path = f"{out_base}/{ticker}/{form}/{year}/summaries.json"
     
     # Load existing file or create new structure
-    if output_file.exists():
-        with open(output_file, 'r', encoding='utf-8') as f:
-            existing_data = json.load(f)
+    if storage.exists(output_path):
+        existing_data = storage.read_json(output_path)
         
         # Parse existing data into SummariesFile model for validation
         existing_file = SummariesFile.model_validate(existing_data)
@@ -99,17 +102,10 @@ def write_summaries(
         # Fallback: Pydantic validation already happened during model_validate
         pass
     
-    # Write with pretty printing and stable key ordering
-    with open(output_file, 'w', encoding='utf-8') as f:
-        json.dump(
-            file_dict,
-            f,
-            indent=2,
-            ensure_ascii=False,
-            sort_keys=True
-        )
+    # Write using hybrid storage
+    storage.write_json(file_dict, output_path)
     
-    return output_file
+    return output_path
 
 
 def load_summaries(
@@ -119,7 +115,7 @@ def load_summaries(
     out_base: str = "data/processed"
 ) -> SummariesFile:
     """
-    Load existing summaries.json file.
+    Load existing summaries.json file using hybrid storage.
     
     Args:
         ticker: Stock ticker symbol
@@ -134,13 +130,20 @@ def load_summaries(
         FileNotFoundError: If summaries.json doesn't exist
         ValueError: If file is invalid or schema validation fails
     """
-    output_file = Path(out_base) / ticker / form / str(year) / "summaries.json"
+    # Import hybrid storage
+    import sys
+    from pathlib import Path
+    sys.path.append(str(Path(__file__).parent.parent.parent))
+    from ingestion.storage.hybrid import HybridStorage
     
-    if not output_file.exists():
-        raise FileNotFoundError(f"Summaries file not found: {output_file}")
+    storage = HybridStorage()
     
-    with open(output_file, 'r', encoding='utf-8') as f:
-        data = json.load(f)
+    output_path = f"{out_base}/{ticker}/{form}/{year}/summaries.json"
+    
+    if not storage.exists(output_path):
+        raise FileNotFoundError(f"Summaries file not found: {output_path}")
+    
+    data = storage.read_json(output_path)
     
     return SummariesFile.model_validate(data)
 

@@ -51,15 +51,18 @@ def run_command(cmd, description, cwd=None, env=None):
 
 
 def load_results(ticker, filing_type, year):
-    """Load analysis results"""
+    """Load analysis results using hybrid storage"""
     try:
-        summaries_path = Path(f"data/processed/{ticker}/{filing_type}/{year}/summaries.json")
-        if summaries_path.exists():
-            with open(summaries_path, 'r') as f:
-                summaries = json.load(f)
+        from ingestion.storage.hybrid import HybridStorage
+        storage = HybridStorage()
+        
+        summaries_path = f"data/processed/{ticker}/{filing_type}/{year}/summaries.json"
+        if storage.exists(summaries_path):
+            summaries = storage.read_json(summaries_path)
             return summaries
         return None
-    except Exception:
+    except Exception as e:
+        print(f"Error loading results: {e}")
         return None
 
 
@@ -183,7 +186,7 @@ def analyze_filing(ticker, year, use_async, progress=gr.Progress()):
         # Step 1: Fetch filing data
         progress(0.2, desc="📥 Downloading annual report from SEC database...")
         
-        ingest_cmd = f"python -m ingestion.run_filings --ticker {ticker} --filing-type {filing_type} --year {year}"
+        ingest_cmd = f"python -m ingestion.run_filings_s3 --ticker {ticker} --filing-type {filing_type} --year {year}"
         success, output = run_command(ingest_cmd, f"Fetching {ticker} {filing_type} {year}")
         
         if not success:
@@ -192,22 +195,25 @@ def analyze_filing(ticker, year, use_async, progress=gr.Progress()):
         # Step 2: Check if we need sectionization (Option 2 bypass)
         progress(0.4, desc="📋 Processing document structure...")
         
+        # Import hybrid storage to check file existence properly
+        from ingestion.storage.hybrid import HybridStorage
+        storage = HybridStorage()
+        
         txt_path = f"data/raw/filings/{ticker}/{year}_{filing_type}_{year}_filing.txt"
-        if not os.path.exists(txt_path):
+        if not storage.exists(txt_path):
             return "❌ Downloaded file is not available for processing.", None
         
         output_dir = f"data/processed/{ticker}/{filing_type}/{year}"
-        os.makedirs(output_dir, exist_ok=True)
+        storage.mkdirs_for(f"{output_dir}/dummy")  # Ensure directory exists (for local storage)
         
         # Check if we're using Option 2 (targeted extraction)
         # Option 2 provides pre-structured sections, so we can bypass sectionizer
         json_path = f"data/raw/filings/{ticker}/{year}_{filing_type}_{year}_filing.json"
         skip_sectionizer = False
         
-        if os.path.exists(json_path):
+        if storage.exists(json_path):
             try:
-                with open(json_path, 'r') as f:
-                    filing_data = json.load(f)
+                filing_data = storage.read_json(json_path)
                 # Check if this is Option 2 structured data
                 if (filing_data.get('meta', {}).get('extraction_method') == 'option_2_targeted' and 
                     len(filing_data.get('items', [])) <= 3):  # Small number indicates targeted extraction
@@ -230,8 +236,7 @@ def analyze_filing(ticker, year, use_async, progress=gr.Progress()):
             # Create minimal sections.json and chunks.json for Option 2 structured data
             progress(0.5, desc="✅ Creating structured data from Option 2 response")
             try:
-                with open(json_path, 'r') as f:
-                    filing_data = json.load(f)
+                filing_data = storage.read_json(json_path)
                 
                 # Create sections.json with proper format matching sectionizer output
                 sections_data = {
@@ -313,15 +318,12 @@ def analyze_filing(ticker, year, use_async, progress=gr.Progress()):
                             })
                             para_counter += 1
                 
-                # Write sections.json and chunks.json
+                # Write sections.json and chunks.json using hybrid storage
                 sections_path = f"{output_dir}/sections.json"
                 chunks_path = f"{output_dir}/chunks.json"
                 
-                with open(sections_path, 'w') as f:
-                    json.dump(sections_data, f, indent=2)
-                
-                with open(chunks_path, 'w') as f:
-                    json.dump(chunks_data, f, indent=2)
+                storage.write_json(sections_data, sections_path)
+                storage.write_json(chunks_data, chunks_path)
                 
             except Exception as e:
                 return f"❌ Failed to create structured data from Option 2: {e}", None
@@ -466,12 +468,9 @@ with gr.Blocks(title="AlphaLoom - Company Filing Analysis", theme=gr.themes.Soft
                 label="📊 Company"
             )
             
-            current_year = datetime.now().year
-            year = gr.Number(
+            year = gr.Dropdown(
+                choices=[("2023", 2023), ("2022", 2022), ("2021", 2021), ("2020", 2020)],
                 value=2023,
-                minimum=2020,
-                maximum=current_year,
-                step=1,
                 label="📅 Filing Year",
                 info="Choose the year of the annual report you want to analyze"
             )

@@ -55,7 +55,7 @@ except ImportError:
 
 def load_filing_data(ticker: str, form: str, year: int) -> Optional[Dict[str, Any]]:
     """
-    Load sections.json and chunks.json for a filing.
+    Load sections.json and chunks.json for a filing using hybrid storage.
     
     Args:
         ticker: Stock ticker symbol
@@ -65,23 +65,28 @@ def load_filing_data(ticker: str, form: str, year: int) -> Optional[Dict[str, An
     Returns:
         Dict with sections_data, chunks_data, or None if error
     """
-    base_dir = Path("data/processed") / ticker / form / str(year)
-    sections_path = base_dir / "sections.json"
-    chunks_path = base_dir / "chunks.json"
+    # Import hybrid storage
+    import sys
+    from pathlib import Path
+    sys.path.append(str(Path(__file__).parent.parent.parent))
+    from ingestion.storage.hybrid import HybridStorage
     
-    if not sections_path.exists():
+    storage = HybridStorage()
+    
+    sections_path = f"data/processed/{ticker}/{form}/{year}/sections.json"
+    chunks_path = f"data/processed/{ticker}/{form}/{year}/chunks.json"
+    
+    if not storage.exists(sections_path):
         print(f"Error: sections.json not found at {sections_path}", file=sys.stderr)
         return None
     
-    if not chunks_path.exists():
+    if not storage.exists(chunks_path):
         print(f"Error: chunks.json not found at {chunks_path}", file=sys.stderr)
         return None
     
     try:
-        with open(sections_path, 'r', encoding='utf-8') as f:
-            sections_data = json.load(f)
-        with open(chunks_path, 'r', encoding='utf-8') as f:
-            chunks_data = json.load(f)
+        sections_data = storage.read_json(sections_path)
+        chunks_data = storage.read_json(chunks_path)
         
         return {
             'sections_data': sections_data,
