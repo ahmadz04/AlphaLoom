@@ -272,9 +272,3 @@ AlphaLoom/
 - **DevOps Integration**: CI/CD pipeline, containerization, and cloud deployment
 - **API Design**: RESTful service architecture with comprehensive documentation
 - **Code Quality**: Emphasis on maintainability, testing, and documentation
-
----
-
-*Built with ❤️ for the financial technology community*
-
-**AlphaLoom** - Transforming SEC filings into actionable intelligence through the power of AI.
