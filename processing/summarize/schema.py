@@ -7,7 +7,7 @@ of SEC filing content, including key bullet points, numbers, and uncertainties.
 """
 
 from datetime import datetime, timezone
-from typing import List
+from typing import List, Optional
 from pydantic import BaseModel, Field
 
 
@@ -26,6 +26,30 @@ class Bullet(BaseModel):
     span_ids: List[str] = Field(..., description="List of paragraph span IDs that support this bullet point")
 
 
+class SentimentAnalysis(BaseModel):
+    """
+    FinBERT sentiment analysis results for a section.
+    
+    Attributes:
+        negative: Negative sentiment probability (0-1)
+        neutral: Neutral sentiment probability (0-1) 
+        positive: Positive sentiment probability (0-1)
+        overall_score: Overall sentiment score (-1 to +1, negative to positive)
+        sentiment_label: Human-readable sentiment label
+        confidence: Confidence score of the prediction (0-1)
+        model_used: Name of the model used for analysis
+        chunks_analyzed: Number of text chunks analyzed
+    """
+    negative: float = Field(..., description="Negative sentiment probability (0-1)")
+    neutral: float = Field(..., description="Neutral sentiment probability (0-1)")
+    positive: float = Field(..., description="Positive sentiment probability (0-1)")
+    overall_score: float = Field(..., description="Overall sentiment score (-1 to +1, negative to positive)")
+    sentiment_label: str = Field(..., description="Human-readable sentiment label")
+    confidence: float = Field(..., description="Confidence score of the prediction (0-1)")
+    model_used: str = Field(..., description="Name of the model used for analysis")
+    chunks_analyzed: int = Field(..., description="Number of text chunks analyzed")
+
+
 class SummariesSection(BaseModel):
     """
     Summary data for a single SEC filing section.
@@ -37,6 +61,7 @@ class SummariesSection(BaseModel):
         bullets: Key insights and findings as bullet points
         key_numbers: Important numerical data points
         uncertainties: Risk factors and uncertain elements
+        sentiment_analysis: FinBERT sentiment analysis results (optional)
         warnings: Processing warnings or issues
         created_at: UTC timestamp when summary was generated
     """
@@ -46,6 +71,7 @@ class SummariesSection(BaseModel):
     bullets: List[Bullet] = Field(default_factory=list, description="Key insights and findings as bullet points")
     key_numbers: List[Bullet] = Field(default_factory=list, description="Important numerical data points")
     uncertainties: List[Bullet] = Field(default_factory=list, description="Risk factors and uncertain elements")
+    sentiment_analysis: Optional[SentimentAnalysis] = Field(None, description="FinBERT sentiment analysis results (optional)")
     warnings: List[str] = Field(default_factory=list, description="Processing warnings or issues")
     created_at: str = Field(..., description="UTC timestamp when summary was generated")
 

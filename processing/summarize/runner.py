@@ -307,6 +307,61 @@ def run(
         merge_warnings = merged_output.get("warnings", [])
         all_warnings.extend(merge_warnings)
         
+        # Step 5.5: Sentiment Analysis for Risk Factors (Item 1A)
+        sentiment_analysis = None
+        if section_name == "Item 1A":  # Risk Factors section
+            try:
+                # Check if required dependencies are available
+                try:
+                    import torch
+                    import transformers
+                    deps_available = True
+                except ImportError:
+                    deps_available = False
+                
+                if not deps_available:
+                    print(f"⚠️ Skipping sentiment analysis for {section_name}: PyTorch/Transformers not installed")
+                    print("💡 To enable sentiment analysis, run: pip install torch transformers")
+                else:
+                    print(f"Running sentiment analysis for {section_name}...")
+                    
+                    # Import sentiment analyzer
+                    import sys
+                    from pathlib import Path
+                    sys.path.append(str(Path(__file__).parent.parent))
+                    from sentiment.finbert_analyzer import analyze_risk_factors_sentiment
+                    
+                    # Combine paragraph text for sentiment analysis
+                    section_text = "\n\n".join([p.get("text", "") for p in section_paragraphs])
+                    
+                    if len(section_text.strip()) < 100:
+                        print(f"⚠️ Skipping sentiment analysis: text too short ({len(section_text)} chars)")
+                    else:
+                        # Run sentiment analysis
+                        sentiment_result = analyze_risk_factors_sentiment(section_text)
+                        
+                        # Convert to schema format
+                        from .schema import SentimentAnalysis
+                        sentiment_analysis = SentimentAnalysis(
+                            negative=sentiment_result["negative"],
+                            neutral=sentiment_result["neutral"],
+                            positive=sentiment_result["positive"],
+                            overall_score=sentiment_result["overall_score"],
+                            sentiment_label=sentiment_result["sentiment_label"],
+                            confidence=sentiment_result["confidence"],
+                            model_used=sentiment_result["model_used"],
+                            chunks_analyzed=sentiment_result["chunks_analyzed"]
+                        )
+                        
+                        print(f"✅ Sentiment analysis complete: {sentiment_result['sentiment_label']} "
+                              f"(score: {sentiment_result['overall_score']:.3f})")
+                      
+            except Exception as e:
+                warning = f"Sentiment analysis failed for {section_name}: {e}"
+                print(f"Warning: {warning}")
+                merge_warnings.append(warning)
+                all_warnings.append(warning)
+        
         # Step 6: Build SummariesSection with created_at=now_iso()
         summary_section = {
             "section_name": section_name,
@@ -318,6 +373,10 @@ def run(
             "warnings": merge_warnings,
             "created_at": now_iso()
         }
+        
+        # Only add sentiment_analysis if it exists (avoids None serialization issues)
+        if sentiment_analysis is not None:
+            summary_section["sentiment_analysis"] = sentiment_analysis.model_dump()
         
         # Count bullets for reporting
         bullets_count = len(summary_section["bullets"])

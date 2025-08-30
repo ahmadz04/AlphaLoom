@@ -156,6 +156,43 @@ def format_summaries(summaries, ticker):
                 if clean_number:
                     output += f"💰 {clean_number}\n\n"
         
+        # Sentiment Analysis (for Risk Factors section)
+        sentiment = section.get('sentiment_analysis')
+        if sentiment and section_name == "Item 1A":  # Risk Factors
+            output += "### 📊 Sentiment Analysis\n\n"
+            
+            # Overall sentiment with color coding
+            label = sentiment.get('sentiment_label', 'Neutral')
+            score = sentiment.get('overall_score', 0.0)
+            confidence = sentiment.get('confidence', 0.0)
+            
+            # Emoji and color based on sentiment
+            if label == "Positive":
+                emoji = "✅"
+                color_desc = "indicating manageable risks"
+            elif label == "Negative":
+                emoji = "🔴"
+                color_desc = "indicating significant concerns"
+            else:
+                emoji = "🟡"
+                color_desc = "indicating balanced risk assessment"
+                
+            output += f"{emoji} **Overall Sentiment**: {label} {color_desc}\n\n"
+            output += f"**Sentiment Score**: {score:.3f} (range: -1.0 to +1.0)\n\n"
+            
+            # Probability breakdown
+            neg_pct = sentiment.get('negative', 0.0) * 100
+            neu_pct = sentiment.get('neutral', 0.0) * 100  
+            pos_pct = sentiment.get('positive', 0.0) * 100
+            
+            output += "**Detailed Breakdown**:\n\n"
+            output += f"🔴 Negative: {neg_pct:.1f}% | "
+            output += f"🟡 Neutral: {neu_pct:.1f}% | "
+            output += f"🟢 Positive: {pos_pct:.1f}%\n\n"
+            
+            output += f"*Confidence: {confidence:.1%} | "
+            output += f"Analyzed {sentiment.get('chunks_analyzed', 0)} text segments*\n\n"
+        
         # Risks and uncertainties
         uncertainties = section.get('uncertainties', [])
         if uncertainties:
