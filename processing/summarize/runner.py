@@ -16,6 +16,7 @@ Usage:
 """
 
 import hashlib
+import os
 try:
     import ujson as json
 except ImportError:
@@ -24,6 +25,10 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Set, Any, Optional
+from dotenv import load_dotenv
+
+# Load environment variables from config/.env
+load_dotenv('config/.env')
 
 try:
     from .section_runner import (

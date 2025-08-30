@@ -30,7 +30,7 @@ class FinancialDatasetsClient:
             ticker: Stock ticker symbol
             filing_type: Type of filing (10-K, 10-Q)
             year: Filing year (defaults to current year)
-            items: Specific items to extract (optional)
+            items: Specific items to extract (optional) - uses Option 2 structure when provided
         
         Returns:
             API response containing filing items
@@ -44,11 +44,37 @@ class FinancialDatasetsClient:
             "year": year,
         }
         
+        # Option 2: Add specific item parameters for targeted extraction
         if items:
+            # Try different item parameter formats that the API might accept
+            import urllib.parse
+            
+            # Format 1: Try "Item-1" style (hyphen instead of space)
+            formatted_items = []
             for item in items:
-                params[f"item"] = item
-                
-        resp = self.client.get("/filings/items/", params=params)
+                if item == "Item 1":
+                    formatted_items.append("Item-1")
+                elif item == "Item 1A":
+                    formatted_items.append("Item-1A") 
+                else:
+                    formatted_items.append(item.replace(" ", "-"))
+            
+            query_parts = [f"{k}={urllib.parse.quote(str(v))}" for k, v in params.items()]
+            for item in formatted_items:
+                query_parts.append(f"item={urllib.parse.quote(item)}")
+            
+            url_path = f"/filings/items/?{'&'.join(query_parts)}"
+            print(f"[DEBUG] Trying URL: {self.api_base}{url_path}")
+            resp = self.client.get(url_path)
+            
+            # If that fails, try fallback to Option 1
+            if resp.status_code == 400:
+                print(f"[DEBUG] Option 2 failed with 400, falling back to Option 1")
+                resp = self.client.get("/filings/items/", params=params)
+        else:
+            # Option 1: Standard request without specific items
+            resp = self.client.get("/filings/items/", params=params)
+            
         resp.raise_for_status()
         return resp.json()
 

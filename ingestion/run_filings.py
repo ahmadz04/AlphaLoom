@@ -7,6 +7,7 @@ from .utils.time import utc_now_iso
 from .utils.hashing import sha256_text
 from .providers.financial_datasets import FinancialDatasetsClient
 from .utils.models import FilingRaw, FilingItem, Manifest, LatestIndex
+from config.sections_config import get_enabled_sections
 
 def main():
     load_dotenv(dotenv_path=os.path.join("config", ".env"), override=True)
@@ -29,12 +30,24 @@ def main():
     storage = LocalStorage()
     client = FinancialDatasetsClient()
 
-    # 1) Fetch filing data
+    # 1) Fetch filing data using Option 2 (targeted section extraction)
+    enabled_sections = get_enabled_sections()
+    print(f"[{run_id}] using targeted extraction for sections: {enabled_sections}")
+    
     try:
         if year:
-            filing_data = client.get_filing_items(ticker, filing_type, year)
+            # Option 2: Request specific sections only
+            filing_data = client.get_filing_items(ticker, filing_type, year, items=enabled_sections)
         else:
-            filing_data = client.get_latest_filing(ticker, filing_type)
+            # For latest filing, also use targeted extraction
+            current_year = datetime.now(timezone.utc).year
+            try:
+                filing_data = client.get_filing_items(ticker, filing_type, current_year, items=enabled_sections)
+            except Exception:
+                # Fallback to previous year with targeted sections
+                filing_data = client.get_filing_items(ticker, filing_type, current_year - 1, items=enabled_sections)
+                
+        print(f"[{run_id}] successfully fetched {len(filing_data.get('items', []))} targeted sections")
     except Exception as e:
         print(f"[{run_id}] error fetching filing: {e}")
         raise
@@ -56,14 +69,21 @@ def main():
     if not content or len(content) < 100:
         raise RuntimeError("Filing content too short or empty")
 
-    # Build filing items - API uses 'title' and 'text' fields
+    # Build filing items - Option 2 API provides structured 'number', 'title', and 'text' fields
     filing_items = []
     for item_data in filing_data.get("items", []):
+        # Option 2 structured response has consistent field names
+        section_number = item_data.get("number", "")
+        section_title = item_data.get("title", "")
+        section_text = item_data.get("text", "")
+        
         filing_items.append(FilingItem(
-            item=item_data.get("title", item_data.get("item", "")) or "",
-            content=item_data.get("text", item_data.get("content", "")) or "",
-            section_type=str(item_data.get("section_type", item_data.get("number", ""))) or None
+            item=section_number or section_title or "",  # Use number as primary identifier
+            content=section_text or "",
+            section_type=section_number or None
         ))
+        
+        print(f"[{run_id}] processed section: {section_number} - {section_title} ({len(section_text)} chars)")
 
     # Create filing hash
     filing_hash = sha256_text(content.lower().strip())
@@ -83,7 +103,10 @@ def main():
         meta={
             "api_base": os.getenv("FINANCIAL_DATASETS_API_BASE"),
             "items_requested": len(filing_items),
-            "content_length": len(content)
+            "content_length": len(content),
+            "extraction_method": "option_2_targeted",
+            "sections_requested": enabled_sections,
+            "sections_received": [item.get("number", "") for item in filing_data.get("items", [])]
         }
     )
 

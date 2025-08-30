@@ -7,10 +7,17 @@ Modify the ENABLED_SECTIONS list to add or remove sections as needed.
 """
 
 # Default sections to process (can be overridden by environment variables or command line args)
+# Updated to focus on Item 1 and Item 1A for Option 2 targeted extraction
 ENABLED_SECTIONS = [
+    "Item 1",    # Business Overview
     "Item 1A",   # Risk Factors  
-    "Item 7",    # Management's Discussion and Analysis
 ]
+
+# Previous configuration (commented out for Option 2 migration)
+# ENABLED_SECTIONS = [
+#     "Item 1A",   # Risk Factors  
+#     "Item 7",    # Management's Discussion and Analysis
+# ]
 
 # Full list of possible sections for reference
 # Uncomment any of these to add them to processing:
