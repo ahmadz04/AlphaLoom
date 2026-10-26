@@ -39,8 +39,9 @@ class FinBERTAnalyzer:
         self._tokenizer = None
         self._model = None
         
-        # Sentiment labels mapping (FinBERT specific)
-        self.label_map = {0: "negative", 1: "neutral", 2: "positive"}
+        # Index -> label mapping, read from the model config on load
+        # (finbert-tone uses 0=Neutral, 1=Positive, 2=Negative)
+        self._label_map = None
     
     @property
     def tokenizer(self):
@@ -65,7 +66,18 @@ class FinBERTAnalyzer:
             self._model.to(self.device)
             self._model.eval()  # Set to evaluation mode
         return self._model
-    
+
+    @property
+    def label_map(self) -> Dict[int, str]:
+        """Index -> lowercase label, taken from the model's own id2label config"""
+        if self._label_map is None:
+            id2label = self.model.config.id2label
+            self._label_map = {int(idx): label.lower() for idx, label in id2label.items()}
+            expected = {"negative", "neutral", "positive"}
+            if set(self._label_map.values()) != expected:
+                raise ValueError(f"Unexpected FinBERT labels {self._label_map}; expected {sorted(expected)}")
+        return self._label_map
+
     def analyze_section_sentiment(self, section_text: str, section_name: str = "Risk Factors") -> Dict:
         """
         Analyze sentiment for a complete SEC filing section.
@@ -139,12 +151,8 @@ class FinBERTAnalyzer:
         
         # Convert to probabilities
         probs = predictions.cpu().numpy()[0]
-        
-        return {
-            "negative": float(probs[0]),
-            "neutral": float(probs[1]), 
-            "positive": float(probs[2])
-        }
+
+        return {self.label_map[idx]: float(prob) for idx, prob in enumerate(probs)}
     
     def _smart_chunk_text(self, text: str, max_chunk_size: int = 400) -> List[str]:
         """

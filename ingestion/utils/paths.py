@@ -30,6 +30,25 @@ def filing_txt_path(ticker: str, filing_type: str, year: int, filed_date: Option
     """Get path for normalized TXT version of filing."""
     return filing_path(ticker, filing_type, year, filed_date, "txt")
 
+def find_filing_path(storage, ticker: str, filing_type: str, year: int,
+                     file_format: str = "json") -> Optional[str]:
+    """
+    Locate an already-ingested filing without knowing its filed date.
+
+    Ingestion names files after filed_date when the API returns one, else after the year,
+    so callers that only know (ticker, type, year) look the file up by prefix.
+    `storage` must provide list_files(prefix). Returns the newest match or None.
+    """
+    prefix = f"data/raw/filings/{ticker.upper()}/{year}_{filing_type}_"
+    suffix = f"_filing.{file_format}"
+    matches = [p for p in storage.list_files(prefix) if p.endswith(suffix)]
+    if not matches:
+        return None
+    # Prefer dated names (latest date wins) over the year-only fallback name
+    year_only = filing_path(ticker, filing_type, year, None, file_format)
+    dated = [p for p in matches if p != year_only]
+    return max(dated) if dated else year_only
+
 # ============================================================================
 # PROCESSED ZONE PATHS - Everything we compute from raw
 # ============================================================================

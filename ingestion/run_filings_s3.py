@@ -24,8 +24,6 @@ from ingestion.utils.models import FilingRaw, FilingItem, Manifest, LatestIndex
 from config.sections_config import get_enabled_sections
 
 # Import S3 caching services
-import sys
-sys.path.append('/Users/ahmad/Documents/GitHub/AlphaLoom')
 from services.pipeline_cache import get_pipeline_cache
 
 

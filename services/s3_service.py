@@ -165,7 +165,30 @@ class S3Service:
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse JSON from {s3_key}: {e}")
             return None
-    
+
+    def download_text(self, s3_key: str, encoding: str = 'utf-8') -> Optional[str]:
+        """
+        Download a text object from S3.
+
+        Args:
+            s3_key: S3 object key (path in bucket)
+            encoding: Text encoding (default: utf-8)
+
+        Returns:
+            Text content or None if failed
+        """
+        try:
+            response = self.s3_client.get_object(Bucket=self.bucket_name, Key=s3_key)
+            logger.info(f"Downloaded text from s3://{self.bucket_name}/{s3_key}")
+            return response['Body'].read().decode(encoding)
+
+        except ClientError as e:
+            if e.response['Error']['Code'] == 'NoSuchKey':
+                logger.warning(f"S3 object does not exist: {s3_key}")
+            else:
+                logger.error(f"Failed to download text from {s3_key}: {e}")
+            return None
+
     def file_exists(self, s3_key: str) -> bool:
         """
         Check if a file exists in S3.

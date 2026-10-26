@@ -12,6 +12,21 @@ import os
 import re
 import sys
 import unicodedata
+from pathlib import Path
+
+# Run as a script from processing/, so put the repo root on the path for ingestion.*
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from ingestion.storage.hybrid import HybridStorage
+
+_storage = None
+
+
+def get_storage():
+    """Lazily create the shared storage (local or S3, per USE_S3_STORAGE)."""
+    global _storage
+    if _storage is None:
+        _storage = HybridStorage()
+    return _storage
 
 
 def compile_heading_patterns(form):
@@ -471,8 +486,7 @@ def write_sections_json(output_dir, ticker, form, year, source_text_path, headin
     }
     
     output_path = os.path.join(output_dir, "sections.json")
-    with open(output_path, 'w', encoding='utf-8') as f:
-        json.dump(sections_data, f, indent=2, ensure_ascii=False)
+    get_storage().write_json(sections_data, output_path)
     
     return output_path
 
@@ -515,8 +529,7 @@ def write_chunks_json(output_dir, ticker, form, year, source_text_path, paragrap
     }
     
     output_path = os.path.join(output_dir, "chunks.json")
-    with open(output_path, 'w', encoding='utf-8') as f:
-        json.dump(chunks_data, f, indent=2, ensure_ascii=False)
+    get_storage().write_json(chunks_data, output_path)
     
     return output_path
 
@@ -572,8 +585,7 @@ def read_and_normalize(path, encoding="utf-8"):
         Normalized string with page headers/footers removed
     """
     try:
-        with open(path, 'r', encoding=encoding) as f:
-            text = f.read()
+        text = get_storage().read_text(path, encoding=encoding)
     except FileNotFoundError:
         print(f"Error: File not found: {path}", file=sys.stderr)
         sys.exit(1)
@@ -637,9 +649,6 @@ def main():
                        help="Text file encoding (default: utf-8)")
     
     args = parser.parse_args()
-    
-    # Create output directory if it doesn't exist
-    os.makedirs(args.out_dir, exist_ok=True)
     
     # Print parsed arguments in one line
     print(f"ticker={args.ticker} form={args.form} year={args.year} "
@@ -720,8 +729,7 @@ def main():
         headings,
         validation_warnings
     )
-    sections_size = os.path.getsize(sections_path)
-    print(f"  sections.json: {sections_path} ({sections_size} bytes)")
+    print(f"  sections.json: {sections_path} ({get_storage().get_storage_type()})")
     
     # Write chunks.json (include validation warnings)
     chunks_path = write_chunks_json(
@@ -733,8 +741,7 @@ def main():
         paragraphs_with_ids,
         validation_warnings
     )
-    chunks_size = os.path.getsize(chunks_path)
-    print(f"  chunks.json: {chunks_path} ({chunks_size} bytes)")
+    print(f"  chunks.json: {chunks_path} ({get_storage().get_storage_type()})")
     
     # Print summary line
     print(f"\nsectionize ok ticker={args.ticker} form={args.form} year={args.year} "

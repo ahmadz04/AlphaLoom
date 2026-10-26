@@ -1,5 +1,5 @@
 import json, os, tempfile
-from typing import Any
+from typing import Any, List
 
 class LocalStorage:
     def write_json(self, obj: Any, path_str: str) -> None:
@@ -27,3 +27,17 @@ class LocalStorage:
 
     def mkdirs_for(self, path_str: str) -> None:
         os.makedirs(os.path.dirname(path_str), exist_ok=True)
+
+    def read_text(self, path_str: str, encoding: str = "utf-8") -> str:
+        with open(path_str, "r", encoding=encoding) as f:
+            return f.read()
+
+    def list_files(self, prefix: str) -> List[str]:
+        """List file paths starting with prefix (prefix may end mid-filename)."""
+        dir_, name_prefix = os.path.split(prefix)
+        if not os.path.isdir(dir_ or "."):
+            return []
+        return sorted(
+            os.path.join(dir_, name) for name in os.listdir(dir_ or ".")
+            if name.startswith(name_prefix) and os.path.isfile(os.path.join(dir_, name))
+        )

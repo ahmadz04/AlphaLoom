@@ -17,7 +17,7 @@ load_dotenv('config/.env')
 
 # Import our services
 import sys
-sys.path.append('/Users/ahmad/Documents/GitHub/AlphaLoom')
+sys.path.append(str(Path(__file__).resolve().parents[1]))
 from services.s3_service import get_s3_service, get_s3_path
 from processing.summarize.cache_s3 import CacheManager
 from processing.summarize.persist_s3 import PersistManager
@@ -60,11 +60,17 @@ class PipelineCacheManager:
         Returns:
             True if raw filing exists, False otherwise
         """
-        from ingestion.utils.paths import filing_path
-        
-        # Generate the expected filing path
-        local_path = filing_path(ticker, filing_type, year, filed_date, "json")
-        
+        from ingestion.utils.paths import filing_path, find_filing_path
+        from ingestion.storage.hybrid import HybridStorage
+
+        if filed_date is None:
+            # Name depends on the filed date we don't know yet - look it up by prefix
+            local_path = find_filing_path(HybridStorage(), ticker, filing_type, year, "json")
+            if local_path is None:
+                return False
+        else:
+            local_path = filing_path(ticker, filing_type, year, filed_date, "json")
+
         if self.use_s3:
             s3_key = get_s3_path(local_path)
             exists = self.s3_service.file_exists(s3_key)

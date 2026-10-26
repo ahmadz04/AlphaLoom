@@ -22,7 +22,7 @@ load_dotenv('config/.env')
 # Import S3 service
 try:
     import sys
-    sys.path.append('/Users/ahmad/Documents/GitHub/AlphaLoom')
+    sys.path.append(str(Path(__file__).resolve().parents[2]))
     from services.s3_service import get_s3_service, get_s3_path
     S3_AVAILABLE = True
 except ImportError:

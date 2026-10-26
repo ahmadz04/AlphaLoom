@@ -236,8 +236,10 @@ def analyze_filing(ticker, year, use_async, progress=gr.Progress()):
         from ingestion.storage.hybrid import HybridStorage
         storage = HybridStorage()
         
-        txt_path = f"data/raw/filings/{ticker}/{year}_{filing_type}_{year}_filing.txt"
-        if not storage.exists(txt_path):
+        from ingestion.utils.paths import find_filing_path
+
+        txt_path = find_filing_path(storage, ticker, filing_type, year, "txt")
+        if not txt_path:
             return "❌ Downloaded file is not available for processing.", None
         
         output_dir = f"data/processed/{ticker}/{filing_type}/{year}"
@@ -245,10 +247,10 @@ def analyze_filing(ticker, year, use_async, progress=gr.Progress()):
         
         # Check if we're using Option 2 (targeted extraction)
         # Option 2 provides pre-structured sections, so we can bypass sectionizer
-        json_path = f"data/raw/filings/{ticker}/{year}_{filing_type}_{year}_filing.json"
+        json_path = find_filing_path(storage, ticker, filing_type, year, "json")
         skip_sectionizer = False
-        
-        if storage.exists(json_path):
+
+        if json_path:
             try:
                 filing_data = storage.read_json(json_path)
                 # Check if this is Option 2 structured data

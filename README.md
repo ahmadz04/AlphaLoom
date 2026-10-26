@@ -1,173 +1,187 @@
-# 🚀 AlphaLoom
+# AlphaLoom
 
-**AI-Powered SEC Filing Analysis Platform**
+AlphaLoom reads a company's annual report (10-K) and turns the two sections investors read first, **Business (Item 1)** and **Risk Factors (Item 1A)**, into a short brief. Every point in the brief cites the paragraphs it came from, so any claim can be checked against the original filing. The risk section also gets a sentiment score from FinBERT, a model trained on financial text, so you can compare its tone across companies and years.
 
-AlphaLoom is a sophisticated financial intelligence platform that leverages advanced AI models to analyze SEC filings, providing deep insights into company business operations, risk factors, and financial performance. Built with enterprise-grade architecture and optimized for scalability.
+A 10-K's risk section often runs to dozens of pages. AlphaLoom cuts it to about a page and keeps every line traceable to its source.
 
----
+## How it works
 
-## 🎯 **Core Features**
-
-### 📊 **Intelligent SEC Filing Analysis**
-- **Multi-Section Processing**: Automated extraction and analysis of key SEC filing sections (10-K, 10-Q)
-- **AI-Powered Summarization**: Context-aware summarization using advanced language models
-- **Section-Specific Intelligence**: Focused analysis on Business Overview (Item 1) and Risk Factors (Item 1A)
-- **Hybrid Data Processing**: Seamless integration between local and cloud storage systems
-
-### 🤖 **Advanced Sentiment Analysis**
-- **FinBERT Integration**: Financial domain-specific sentiment analysis using `yiyanghkust/finbert-tone`
-- **Risk Assessment**: Specialized sentiment scoring for risk factor evaluation
-- **GPU Acceleration**: CUDA-optimized processing for large-scale analysis
-- **Batch Processing**: Efficient handling of multiple filings simultaneously
-
-### 🌐 **Multi-Interface Access**
-- **Web Interface**: Modern Gradio-based UI for interactive analysis
-- **Terminal Application**: CLI tool for automated processing and batch operations
-- **API Integration**: RESTful endpoints for programmatic access
-- **Real-time Processing**: Live status updates and progress tracking
-
-### ☁️ **Enterprise Cloud Integration**
-- **AWS S3 Storage**: Scalable cloud storage for processed data and models
-- **Hybrid Architecture**: Seamless failover between local and cloud storage
-- **Data Persistence**: Comprehensive caching and state management
-- **Migration Tools**: Automated data migration utilities
-
----
-
-## 🏗️ **System Architecture**
-
-### **High-Level Architecture**
 ```
-┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│   Data Sources  │ ── │  Ingestion Layer │ ── │ Processing Layer│
-│                 │    │                  │    │                 │
-│ • SEC EDGAR     │    │ • Financial APIs │    │ • AI Summarizer │
-│ • Financial     │    │ • Data Providers │    │ • FinBERT       │
-│   Datasets API  │    │ • Seeking Alpha  │    │ • LLM Pipeline  │
-└─────────────────┘    └──────────────────┘    └─────────────────┘
-         │                       │                       │
-         │                       │                       │
-         ▼                       ▼                       ▼
-┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│  Storage Layer  │    │   Service Layer  │    │ Interface Layer │
-│                 │    │                  │    │                 │
-│ • AWS S3        │    │ • Pipeline Cache │    │ • Gradio Web UI │
-│ • Local Storage │    │ • S3 Service     │    │ • Terminal CLI  │
-│ • Hybrid System │    │ • Data Models    │    │ • API Endpoints │
-└─────────────────┘    └──────────────────┘    └─────────────────┘
+┌────────────────────────┐      ┌────────────────────────┐      ┌────────────────────────┐
+│ SOURCE                 │      │ INGEST                 │      │ STRUCTURE              │
+│                        │      │                        │      │                        │
+│ financialdatasets.ai   │ ───► │ skip if already cached │ ───► │ paragraphs + span IDs  │
+│ /filings/items         │      │ sha256 + manifest      │      │ biz::p003, risks::p012 │
+│ Item 1 + Item 1A only  │      │ raw JSON + plain text  │      │ regex fallback parser  │
+└────────────────────────┘      └────────────────────────┘      └────────────┬───────────┘
+                                                                             │
+                                                                             ▼
+┌────────────────────────┐      ┌────────────────────────┐      ┌────────────┴───────────┐
+│ INTERFACE              │      │ MERGE + SCORE          │      │ SUMMARIZE              │
+│                        │      │                        │      │                        │
+│ Gradio web app         │ ◄─── │ drop uncited claims    │ ◄─── │ 6 paragraphs per call  │
+│ terminal CLI           │      │ fuzzy dedupe, top 7    │      │ gpt-4o-mini, JSON mode │
+│ brief + risk tone      │      │ FinBERT on Item 1A     │      │ content-hash cache     │
+└────────────┬───────────┘      └────────────┬───────────┘      └────────────┬───────────┘
+             │                               │                               │
+═════════════╧═══════════════════════════════╧═══════════════════════════════╧════════════
+  STORAGE   one interface, two backends: local disk or S3 (USE_S3_STORAGE)
+            raw/ · processed/ · cache/summaries/ · dash/  (same paths in both)
 ```
 
-### **Component Architecture**
+1. **Ingest** asks the filings API for only the enabled sections, not the whole filing. It hashes the text and writes the raw JSON, a plain-text copy and a manifest. If a filing has already been processed, ingestion skips the API call.
+2. **Structure** splits each section into paragraphs and gives every paragraph a stable ID, such as `risks::p012`. These IDs are what the summaries cite.
+3. **Summarize** sends the paragraphs to the LLM six at a time. Each call returns bullets, key numbers and uncertainties, and every item carries the span IDs of the paragraphs that support it.
+4. **Merge + score** combines the chunk results into one list per section, checks every citation and runs FinBERT over the risk section.
+5. **Interface** shows the brief and the risk-tone score in the web app or the terminal. The citations are stored in `summaries.json`.
 
-#### **🔄 Ingestion Pipeline** (`/ingestion`)
-- **Provider System**: Modular data source integrations
-  - `financial_datasets.py`: Primary SEC filing provider
-  - `seeking_alpha.py`: Earnings transcripts and news
-- **Storage Abstraction**: Unified storage interface
-  - `hybrid.py`: Smart routing between local/cloud storage
-  - `adapter.py`: Storage interface abstraction
-- **Data Models**: Type-safe data structures using Pydantic
-- **Utilities**: Time handling, path management, and hashing
+## Engineering decisions
 
-#### **🧠 Processing Engine** (`/processing`)
-- **Summarization Pipeline**: Multi-stage document processing
-  - `runner.py`: Main orchestration engine
-  - `section_runner.py`: Section-specific processing
-  - `llm_async.py`: Asynchronous LLM interactions
-- **Sentiment Analysis**: Financial sentiment scoring
-  - `finbert_analyzer.py`: FinBERT model integration
-  - GPU-optimized inference pipeline
-- **Data Sectionization**: Intelligent document parsing
-  - `sectionize.py`: SEC filing structure analysis
+### The model can only cite what it was shown, and every citation is checked
 
-#### **☁️ Service Layer** (`/services`)
-- **S3 Integration**: Cloud storage management
-  - `s3_service.py`: AWS S3 operations
-  - Automatic failover and retry logic
-- **Pipeline Caching**: Performance optimization
-  - `pipeline_cache.py`: Multi-level caching system
-- **State Management**: Process tracking and recovery
+An LLM summary of a legal document is only useful if you can verify it. Each prompt includes the exact list of span IDs in that chunk and tells the model to cite only from that list. After the calls return, [`merge_validate.py`](processing/summarize/merge_validate.py) checks every citation against the paragraphs that actually exist in the section. Invalid IDs are removed. A claim with no valid citation left is dropped entirely, and the drop is logged as a warning in the output.
 
-#### **⚙️ Configuration Management** (`/config`)
-- **Dynamic Section Control**: Runtime processing configuration
-- **Provider Settings**: API endpoint and credential management
-- **Environment Management**: Multi-environment support
+The prompt alone is not enough, because a model can still invent a plausible-looking ID like `risks::p999`. The post-check catches that.
 
----
+### Fetch sections, not filings
 
-## 🛠️ **Technology Stack**
+A full 10-K is hundreds of pages, and most of it is financial statements and exhibits the brief never uses. Ingestion asks the API for the enabled sections only (set in [`config/sections_config.py`](config/sections_config.py)). That keeps the downloads small and means no time is spent locating section boundaries.
 
-### **Core Technologies**
-| Component | Technology | Version | Purpose |
-|-----------|------------|---------|---------|
-| **Runtime** | Python | 3.8+ | Core application language |
-| **AI/ML** | Transformers | 4.21+ | Hugging Face model integration |
-| **AI/ML** | PyTorch | 1.12+ | Deep learning framework |
-| **AI/ML** | OpenAI | 1.0+ | GPT model integration |
-| **Data** | Pandas | 2.0+ | Data manipulation and analysis |
-| **Data** | NumPy | 1.24+ | Numerical computing |
-| **Validation** | Pydantic | 2.0+ | Data validation and serialization |
+If the API rejects the targeted request, ingestion falls back to the full filing, and a regex-based [sectionizer](processing/sectionize.py) finds the Item headings itself. The targeted path is the fast one; the fallback means a filing still gets processed when the targeted request fails.
 
-### **Infrastructure & Storage**
-| Component | Technology | Version | Purpose |
-|-----------|------------|---------|---------|
-| **Cloud** | AWS S3 | - | Scalable object storage |
-| **Cloud** | Boto3 | 1.40+ | AWS SDK integration |
-| **Database** | ChromaDB | 0.4+ | Vector database for embeddings |
-| **Caching** | Custom | - | Multi-tier caching system |
+### Summarize in small chunks, then merge
 
-### **Web & API**
-| Component | Technology | Version | Purpose |
-|-----------|------------|---------|---------|
-| **Web UI** | Gradio | 4.0+ | Interactive web interface |
-| **API** | FastAPI | 0.100+ | High-performance REST API |
-| **Server** | Uvicorn | 0.23+ | ASGI web server |
-| **HTTP** | HTTPX | 0.25+ | Async HTTP client |
+Each section is cut into chunks of six paragraphs, and each chunk becomes its own `gpt-4o-mini` call (JSON mode, temperature 0.2). Small chunks keep the model focused on the text in front of it, keep each list of allowed citations short, and can run in parallel: 8 threads in standard mode, or asyncio in async mode.
 
-### **Development & Testing**
-| Component | Technology | Version | Purpose |
-|-----------|------------|---------|---------|
-| **Testing** | Pytest | 7.4+ | Unit and integration testing |
-| **Async Testing** | Pytest-asyncio | 0.21+ | Asynchronous test support |
-| **Code Quality** | Black | 23.0+ | Code formatting |
-| **Linting** | Flake8 | 6.0+ | Code quality analysis |
-| **Type Checking** | MyPy | 1.5+ | Static type checking |
+The merge step then:
+- joins the chunk results,
+- removes near-duplicates (token-set similarity ≥ 0.88, combining their citations),
+- keeps the top seven items in each list.
 
-### **Data Processing**
-| Component | Technology | Version | Purpose |
-|-----------|------------|---------|---------|
-| **Web Scraping** | BeautifulSoup4 | 4.12+ | HTML/XML parsing |
-| **HTTP Requests** | Requests | 2.31+ | HTTP client library |
-| **JSON Processing** | UltraJSON | 5.8+ | High-performance JSON parsing |
-| **String Matching** | RapidFuzz | 3.0+ | Fast fuzzy string matching |
-| **Progress Tracking** | tqdm | 4.65+ | Progress bar utilities |
+Doing the merge in code rather than with a second LLM call keeps that step deterministic and free.
 
----
+### Cache by content, not by run
 
-## 🚀 **Key Capabilities**
+Each chunk's LLM output is stored under a key built from the ticker, form, year, section, the SHA-256 of the section's text and the chunk number. If you re-run an unchanged filing, every chunk is a cache hit and no API calls are made. If a section's text changes, its hash changes, so only that section is sent to the LLM again.
 
-### **🔍 Advanced Document Intelligence**
-- **Semantic Section Detection**: AI-powered identification of SEC filing sections
-- **Content Extraction**: Precise extraction of relevant business and risk information
-- **Multi-Format Support**: Processing of various filing formats and structures
-- **Contextual Understanding**: Maintains document context throughout processing pipeline
+A second layer of caching sits in front of the whole pipeline: if a filing already has a `summaries.json`, ingestion stops early and the existing result is reused.
 
-### **📈 Financial Analysis Features**
-- **Risk Factor Analysis**: Specialized processing of Item 1A risk disclosures
-- **Business Overview Synthesis**: Comprehensive Item 1 business description analysis
-- **Trend Detection**: Historical analysis across multiple filing periods
-- **Comparative Analytics**: Cross-company analysis capabilities
+### A dedicated sentiment model alongside the LLM
 
-### **⚡ Performance Optimizations**
-- **Asynchronous Processing**: Non-blocking I/O for improved throughput
-- **Intelligent Caching**: Multi-level caching strategy reducing API calls
-- **Batch Operations**: Efficient processing of multiple companies/periods
-- **GPU Acceleration**: CUDA support for transformer models
+LLMs are good at extracting points from text but give inconsistent numbers when asked to rate tone, so their scores aren't reliable for comparing filings. For the risk section, AlphaLoom runs [`yiyanghkust/finbert-tone`](https://huggingface.co/yiyanghkust/finbert-tone), a BERT model fine-tuned on financial language:
 
-### **🔒 Enterprise-Grade Features**
-- **Data Security**: Secure handling of financial data with encryption
-- **Audit Trail**: Comprehensive logging and process tracking
-- **Error Recovery**: Robust error handling and automatic retry mechanisms
-- **Scalability**: Horizontal scaling support through modular architecture
+- The text is packed into chunks of about 400 tokens along sentence boundaries.
+- FinBERT classifies each chunk, and the class probabilities are averaged.
+- The headline score is P(positive) − P(negative), which ranges from −1 to +1.
 
----
+The same text always gets the same score. That makes it possible to compare companies, or one company's filings over time. The model's label order is read from its own config rather than hardcoded.
+
+### Stages communicate through files
+
+Ingestion, structuring and summarization are separate programs. Each one passes its results to the next as JSON files:
+
+- Ingestion writes the raw filing (JSON plus a plain-text copy).
+- Structuring turns that into `sections.json` and `chunks.json`.
+- Summarization produces `summaries.json`.
+
+The web app runs the stages in order, but any stage can be re-run on its own and every intermediate file can be inspected. When a summary looks wrong, you can open `chunks.json` and see exactly what the model was given.
+
+Data is kept in three zones: `raw/` holds data exactly as received, `processed/` holds everything derived from it, and `dash/` holds the pointers the interface reads.
+
+### One storage interface, two backends
+
+All file reads and writes go through [`HybridStorage`](ingestion/storage/hybrid.py). Setting `USE_S3_STORAGE=true` moves everything to S3, and the stage code doesn't change. An S3 key is the local path with the leading `data/` removed, so [`migrate_to_s3.py`](migrate_to_s3.py) can move an existing local dataset to S3 one-to-one. Local writes go to a temporary file first and are then renamed into place, so a crash never leaves a half-written JSON file.
+
+## Output
+
+Each filing produces `processed/{TICKER}/{FORM}/{YEAR}/summaries.json`:
+
+```jsonc
+{
+  "ticker": "AAPL",
+  "form": "10-K",
+  "year": 2023,
+  "sections": [
+    {
+      "section_name": "Item 1A",
+      "section_alias": "Risk Factors",
+      "section_hash": "3f9c2a7e1b04d8c6",   // first 16 hex chars of the section text's SHA-256
+      "bullets":       [{ "text": "…", "span_ids": ["risks::p004", "risks::p005"] }],
+      "key_numbers":   [{ "text": "…", "span_ids": ["risks::p031"] }],
+      "uncertainties": [{ "text": "…", "span_ids": ["risks::p012"] }],
+      "sentiment_analysis": {
+        "negative": 0.61, "neutral": 0.34, "positive": 0.05,
+        "overall_score": -0.56, "sentiment_label": "Negative", "confidence": 0.61,
+        "model_used": "yiyanghkust/finbert-tone", "chunks_analyzed": 48
+      },
+      "warnings": ["Dropped item with no valid citations: '…'"]
+    }
+  ]
+}
+```
+
+The values above show the format only; they are not real results.
+
+## Running it
+
+Requires Python 3.9+. FinBERT runs on a CUDA GPU if one is available, and on the CPU otherwise.
+
+```bash
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+cp config/.env.sample config/.env   # then fill in the keys below
+```
+
+| Variable | Required | Purpose |
+|---|---|---|
+| `FINANCIAL_DATASETS_API_KEY` | yes | Filing text from financialdatasets.ai |
+| `OPENAI_API_KEY` | yes | Chunk summarization |
+| `USE_S3_STORAGE` | no | `true` to store everything in S3 instead of `data/` |
+| `AWS_S3_BUCKET`, `AWS_DEFAULT_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | if S3 | S3 bucket and credentials |
+
+**Web app** (http://localhost:7860):
+
+```bash
+python app.py
+```
+
+**Terminal app** (local storage only, so leave `USE_S3_STORAGE` unset):
+
+```bash
+python terminal_app.py
+```
+
+**One stage at a time:**
+
+```bash
+python -m ingestion.run_filings_s3 --ticker AAPL --filing-type 10-K --year 2023
+python processing/sectionize.py --ticker AAPL --form 10-K --year 2023 \
+  --input-text data/raw/filings/AAPL/<file>.txt --out-dir data/processed/AAPL/10-K/2023
+python -m processing.summarize.runner AAPL 10-K 2023 --sections "Item 1" "Item 1A"
+```
+
+Use `processing.summarize.runner_async` with `--max-concurrent N` for the async runner, which skips the FinBERT step. Tests: `pytest tests/`.
+
+## Repository layout
+
+```
+app.py, terminal_app.py      web and terminal interfaces; run the stages in order
+config/                      enabled sections, env template
+ingestion/
+  providers/                 financialdatasets.ai client (+ legacy Seeking Alpha transcripts)
+  storage/                   HybridStorage, local backend
+  run_filings_s3.py          ingestion entry point
+processing/
+  sectionize.py              regex sectionizer + paragraph span IDs
+  summarize/                 prompt, LLM clients, chunk cache, merge/validate, runners
+  sentiment/                 FinBERT analyzer
+services/                    S3 client, pipeline-level cache
+tests/                       sectionizer heading-pattern tests
+```
+
+## Limitations
+
+- The web app offers four companies (AAPL, MSFT, NVDA, TSLA) and fiscal years 2020–2023. The pipeline itself takes any ticker and year the filings API has.
+- The cache key doesn't include the model or prompt version, so changing the prompt means clearing `cache/summaries/` by hand.
+- The sync and async runners are separate implementations of the same logic and need to be merged into one.
+- FinBERT reads text in chunks of about 400 tokens, so a single risk statement that spans a chunk boundary is scored in two parts.

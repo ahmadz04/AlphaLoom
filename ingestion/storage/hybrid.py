@@ -6,7 +6,7 @@ Hybrid Storage - Unified storage interface for both local and S3 storage
 import json
 import os
 import tempfile
-from typing import Any
+from typing import Any, List
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -16,7 +16,7 @@ load_dotenv('config/.env')
 try:
     import sys
     sys.path.append(str(Path(__file__).parent.parent.parent))
-    from services.s3_service import get_s3_service, get_s3_path
+    from services.s3_service import get_s3_service, get_s3_path, get_local_path
     S3_AVAILABLE = True
 except ImportError:
     S3_AVAILABLE = False
@@ -102,6 +102,24 @@ class HybridStorage:
             with open(path_str, 'w', encoding='utf-8') as f:
                 f.write(content)
     
+    def read_text(self, path_str: str, encoding: str = "utf-8") -> str:
+        """Read a text file from storage."""
+        if self.use_s3:
+            s3_key = get_s3_path(path_str)
+            text = self.s3_service.download_text(s3_key, encoding=encoding)
+            if text is None:
+                raise FileNotFoundError(f"File not found in S3: {s3_key}")
+            return text
+        else:
+            return self.local_storage.read_text(path_str, encoding=encoding)
+
+    def list_files(self, prefix: str) -> List[str]:
+        """List paths (in local 'data/...' form) that start with prefix."""
+        if self.use_s3:
+            return sorted(get_local_path(key) for key in self.s3_service.list_files(get_s3_path(prefix)))
+        else:
+            return self.local_storage.list_files(prefix)
+
     def get_storage_type(self) -> str:
         """Get current storage type."""
         return "S3" if self.use_s3 else "Local"

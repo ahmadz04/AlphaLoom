@@ -205,8 +205,11 @@ def analyze_filing(ticker, filing_type="10-K", year=2023):
             return
         
         # Step 2: Check if we need sectionization (Option 2 bypass)
-        txt_path = f"data/raw/filings/{ticker}/{year}_{filing_type}_{year}_filing.txt"
-        if not os.path.exists(txt_path):
+        from ingestion.storage.local import LocalStorage
+        from ingestion.utils.paths import find_filing_path
+
+        txt_path = find_filing_path(LocalStorage(), ticker, filing_type, year, "txt")
+        if not txt_path:
             print("❌ Downloaded file is not available for processing.")
             return
         
@@ -214,10 +217,10 @@ def analyze_filing(ticker, filing_type="10-K", year=2023):
         os.makedirs(output_dir, exist_ok=True)
         
         # Check if we're using Option 2 (targeted extraction)
-        json_path = f"data/raw/filings/{ticker}/{year}_{filing_type}_{year}_filing.json"
+        json_path = find_filing_path(LocalStorage(), ticker, filing_type, year, "json")
         skip_sectionizer = False
-        
-        if os.path.exists(json_path):
+
+        if json_path:
             try:
                 with open(json_path, 'r') as f:
                     filing_data = json.load(f)
